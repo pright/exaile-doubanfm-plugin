@@ -34,7 +34,6 @@ import json
 import re
 import random
 import contextlib
-from Cookie import SimpleCookie
 
 __all__ = ['DoubanFM', 'DoubanLoginException', 'DoubanFMChannels']
 
@@ -68,11 +67,11 @@ class DoubanFM(object):
         * password - the user's password on douban.com
         """
 
-        self.uid = None
-        self.dbcl2 = None
-        self.bid = None
+	self.token = None
+	self.user_id = None
+	self.expire = None
         self._channel = 0
-        self.__login(username, password, captcha_id, captcha_solution)
+        self.__login(username, password)
         self.__load_channels()
 
     def __load_channels(self):
@@ -83,11 +82,11 @@ class DoubanFM(object):
         channels = json.loads(data)
         self.channels = {}
         #red channel
-        self.channels['Red Heart'] = -3
+        #self.channels['Red Heart'] = -3
         #Personal Radio High
-        self.channels['Personal Radio High'] = -4
+        #self.channels['Personal Radio High'] = -4
         #Personal Radio Easy
-        self.channels['Personal Radio Easy'] = -5
+        #self.channels['Personal Radio Easy'] = -5
         for channel in channels['channels']:
             self.channels[channel['name_en']] = channel['channel_id']
 
@@ -103,44 +102,26 @@ class DoubanFM(object):
         """
         self._channel = value
 
-    def __login(self, username, password, captcha_id=None, captcha_solution=None):
+    def __login(self, username, password):
         """
         login douban, get the session token
         """
-        if self.bid is None:
-            self.__get_login_data()
-        login_form = {'source':'simple',
-                'form_email':username, 'form_password':password}
-        if captcha_id is not None:
-            login_form['captcha-id'] = captcha_id
-            login_form['captcha-solution'] = captcha_solution
+	login_form = {'email':username, 'password':password,
+		 'app_name':'radio_desktop_win', 'version':100}
         data = urllib.urlencode(login_form)
         contentType = "application/x-www-form-urlencoded"
 
-        cookie = 'bid="%s"' % self.bid
-
-        headers = {"Content-Type":contentType, "Cookie": cookie }
+        headers = {"Content-Type":contentType}
         with contextlib.closing(httplib.HTTPSConnection("www.douban.com")) as conn:
-            conn.request("POST", "/accounts/login", data, headers)
-
-            r1 = conn.getresponse()
-            resultCookie = SimpleCookie(r1.getheader('Set-Cookie'))
-
-            if not resultCookie.has_key('dbcl2'):
-                data = {}
-                redir = r1.getheader('location')
-                if redir:
-                    redir_page = urllib.urlopen(redir).read()
-                    captcha_data = self.__check_login_captcha(redir_page)
-                    data['captcha_id'] = captcha_data
-                raise DoubanLoginException(**data)
-
-            dbcl2 = resultCookie['dbcl2'].value
-            if dbcl2 is not None and len(dbcl2) > 0:
-                self.dbcl2 = dbcl2
-
-                uid = self.dbcl2.split(':')[0]
-                self.uid = uid
+            conn.request("POST", "/j/app/login", data, headers)
+            result = conn.getresponse().read()
+	    data = json.loads(result)
+	    err = data["err"]
+	    if cmp(err, "ok"):
+	        raise DoubanLoginException(**data)
+            self.token = data["token"]
+	    self.user_id = data["user_id"]
+            self.expire = data['expire']
 
     def __check_login_captcha(self, webpage):
         captcha_re = re.compile(r'captcha\?id=([\w\d]+?)&amp;')
@@ -149,20 +130,6 @@ class DoubanFM(object):
             return finder.group(1)
         else:
             return None
-
-    def __get_login_data(self):
-        conn = httplib.HTTPConnection("www.douban.com")
-        conn.request("GET", "/")
-        resp = conn.getresponse()
-        cookie = resp.getheader('Set-Cookie')
-        cookie = SimpleCookie(cookie)
-        conn.close()
-        if not cookie.has_key('bid'):
-            raise DoubanLoginException()
-        else:
-            self.bid = cookie['bid']
-
-            return self.bid
 
     def __format_list(self, sidlist, verb=None):
         """
@@ -181,12 +148,17 @@ class DoubanFM(object):
         default request parameters, for override
         """
         params = {}
-        for i in ['aid', 'channel', 'du', 'h', 'r', 'rest', 'sid', 'type', 'uid']:
-            params[i] = ''
+        #for i in ['aid', 'channel', 'du', 'h', 'r', 'rest', 'sid', 'type', 'uid']:
+            #params[i] = ''
 
-        params['r'] = random.random()
-        params['uid'] = self.uid
+        #params['r'] = random.random()
+        #params['uid'] = self.uid
         params['channel'] = self.channel
+	params['app_name'] = 'radio_desktop_win'
+	params['version'] = 100
+	params['user_id'] = self.user_id
+	params['expire'] = self.expire
+	params['token'] = self.token
 
         if typename is not None:
             params['type'] = typename
@@ -198,15 +170,9 @@ class DoubanFM(object):
         io with douban.fm
         """
         data = urllib.urlencode(params)
-        if start is not None:
-            cookie = 'dbcl2="%s"; bid="%s"; start="%s"' % (self.dbcl2, self.bid, start)
-        else:
-            cookie = 'dbcl2="%s"; bid="%s"' % (self.dbcl2, self.bid)
-        header = {"Cookie": cookie}
         with contextlib.closing(httplib.HTTPConnection("douban.fm")) as conn:
-            conn.request('GET', "/j/mine/playlist?"+data, None, header)
+            conn.request('GET', "/j/app/radio/people?"+data)
             result = conn.getresponse().read()
-
             return result
 
 ### playlist related
@@ -326,8 +292,7 @@ class DoubanFM(object):
         ## get recommend ck
             url = "http://www.douban.com/j/recommend?type=%s&uid=%s&rec=" % (t,uid)
             with contextlib.closing(httplib.HTTPConnection("music.douban.com")) as conn:
-                cookie =  'dbcl2="%s"; bid="%s"; ' % (self.dbcl2, self.bid)
-                conn.request('GET', url, None, {'Cookie': cookie})
+                conn.request('GET', url)
                 result = conn.getresponse().read()
                 ck = self.__parse_ck(result)
 
@@ -339,10 +304,9 @@ class DoubanFM(object):
             ## convert unicode chars to bytes
             data = urllib.urlencode(post)
             ## ck ?
-            cookie = 'dbcl2="%s"; bid="%s"; ck=%s' % (self.dbcl2, self.bid, ck)
             accept = 'application/json'
             content_type= 'application/x-www-form-urlencoded; charset=UTF-8'
-            header = {"Cookie": cookie, "Accept": accept,
+            header = {"Accept": accept,
                     "Content-Type":content_type, }
 
             with contextlib.closing(httplib.HTTPConnection("www.douban.com")) as conn:

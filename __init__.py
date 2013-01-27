@@ -93,17 +93,12 @@ class DoubanRadioPlugin(object):
         username = settings.get_option("plugin/douban_radio/username")
         password = settings.get_option("plugin/douban_radio/password")
         try:
-            self.doubanfm = DoubanFM(username, password, captcha_id, captcha_solution)
+            self.doubanfm = DoubanFM(username, password)
         except DoubanLoginException as e:
-            if e.data['captcha_id'] is None:
-                self.exaile.gui.main.message.show_error(
-                    _('Douban FM Error'),
-                    _('Failed to login to douban.fm with your credential'))
-                return
-            else:
-                captcha_id = e.data['captcha_id']
-                self.show_captcha_dialog(captcha_id)
-                return
+	    self.exaile.gui.main.message.show_error(
+	        _('Douban FM Error'),
+	        _('Failed to login to douban.fm with your credential'))
+	    return
 
         self.channels = self.doubanfm.channels
 
