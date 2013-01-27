@@ -88,7 +88,7 @@ class DoubanFM(object):
         #Personal Radio Easy
         #self.channels['Personal Radio Easy'] = -5
         for channel in channels['channels']:
-            self.channels[channel['name_en']] = channel['channel_id']
+            self.channels[channel['name']] = channel['channel_id']
 
     @property
     def channel(self):
